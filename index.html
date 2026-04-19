@@ -986,7 +986,7 @@ const DIM_NAMES = {
       // ----- 分享截图功能（预览模式）-----
       function generateShareSnapshot(onFinish) {
         const { best: album, similarity, confidence, confidenceLabel } = computeMatch();
-        const currentUrl = window.location.href; // 使用当前页面链接
+        const currentUrl = window.location.href;
         let captureDone = false;
         let captureStarted = false;
         const finishCapture = () => {
@@ -997,76 +997,65 @@ const DIM_NAMES = {
         const safeRemove = (node) => {
           if (node && node.parentNode) node.parentNode.removeChild(node);
         };
+        const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
         if (typeof QRCode === 'undefined' || typeof html2canvas !== 'function') {
           alert('分享组件加载失败，请稍后重试。');
           finishCapture();
           return;
         }
 
-        // 遮罩层
-        const overlay = document.createElement('div');
-        overlay.style.cssText = `
-          position: fixed; left: 0; top: 0; width: 100%; height: 100%;
-          background: rgba(0,0,0,0.3); backdrop-filter: blur(4px);
-          z-index: 99998;
-        `;
-        document.body.appendChild(overlay);
-
-        // 截图卡片容器
-        const snapshotContainer = document.createElement('div');
-        snapshotContainer.style.cssText = `
-          position: fixed; 
-          left: 50%; top: 50%; 
-          transform: translate(-50%, -50%);
-          width: 600px; max-width: 90vw; max-height: 88vh; overflow: auto;
-          background: linear-gradient(145deg, #fdfaf7 0%, #f5efe8 100%);
-          border-radius: 32px; padding: 28px 24px;
-          box-shadow: 0 25px 50px rgba(0,0,0,0.3);
-          font-family: system-ui, -apple-system, 'PingFang SC', sans-serif;
-          color: #2e2b28;
-          z-index: 99999; 
+        // 截图用离屏容器：避免微信/移动端对 fixed + transform 截图不完整
+        const captureNode = document.createElement('div');
+        captureNode.style.cssText = `
+          position: absolute;
+          left: -99999px;
+          top: 0;
+          width: 600px;
+          background: #fdfaf7;
           border: 2px solid rgba(184,124,78,0.2);
+          border-radius: 28px;
+          padding: 28px 24px;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+          color: #2e2b28;
+          box-sizing: border-box;
+          z-index: -1;
         `;
 
-        // 卡片内容（包含关键字段）
-        snapshotContainer.innerHTML = `
-          <div style="display: flex; align-items: center; gap: 20px; margin-bottom: 24px;">
-            <div style="width: 120px; height: 120px; border-radius: 16px; overflow: hidden; box-shadow: 0 8px 16px rgba(0,0,0,0.1);">
-              <img src="${album.cover}" crossorigin="anonymous" style="width:100%; height:100%; object-fit:cover;" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'120\\' height=\\'120\\'%3E%3Crect width=\\'120\\' height=\\'120\\' fill=\\'%23f0e4d8\\'/%3E%3Ctext x=\\'50%25\\' y=\\'50%25\\' font-size=\\'12\\' fill=\\'%238b5e3c\\' text-anchor=\\'middle\\' dy=\\'.3em\\'%3E%E2%99%AA%3C/text%3E%3C/svg%3E';">
+        captureNode.innerHTML = `
+          <div style="display:flex;align-items:center;gap:20px;margin-bottom:24px;">
+            <div style="width:120px;height:120px;border-radius:16px;overflow:hidden;box-shadow:0 8px 16px rgba(0,0,0,0.1);background:#f0e4d8;flex-shrink:0;">
+              <img id="shareCoverImage" src="${album.cover}" crossorigin="anonymous" style="width:100%;height:100%;object-fit:cover;" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'120\\' height=\\'120\\'%3E%3Crect width=\\'120\\' height=\\'120\\' fill=\\'%23f0e4d8\\'/%3E%3Ctext x=\\'50%25\\' y=\\'50%25\\' font-size=\\'12\\' fill=\\'%238b5e3c\\' text-anchor=\\'middle\\' dy=\\'.3em\\'%3ETI%3C/text%3E%3C/svg%3E';">
             </div>
-            <div style="flex:1;">
-              <div style="font-size: 14px; color: #b87c4e; letter-spacing: 2px; margin-bottom: 6px;">${album.year} · TI 章节</div>
-              <div style="font-size: 32px; font-weight: 700; line-height: 1.1; margin-bottom: 8px;">${album.name}</div>
-              <div style="display: inline-block; background: #f0e4d8; border-radius: 40px; padding: 6px 16px; color: #8b5e3c; font-weight: 600; font-size: 15px;">
-                🎯 匹配度 ${similarity}% · 置信度 ${confidence}%（${confidenceLabel}）
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:14px;color:#b87c4e;letter-spacing:1px;margin-bottom:6px;">${album.year} · TI 章节</div>
+              <div style="font-size:32px;font-weight:700;line-height:1.1;color:#2e2b28;margin-bottom:8px;word-break:break-word;">${album.name}</div>
+              <div style="display:inline-block;background:#f0e4d8;border-radius:40px;padding:6px 16px;color:#8b5e3c;font-weight:600;font-size:15px;">
+                匹配度 ${similarity}% · 置信度 ${confidence}%（${confidenceLabel}）
               </div>
             </div>
           </div>
 
-          <!-- 章节人格解读 -->
-          <div style="background: rgba(255,255,255,0.6); border-radius: 20px; padding: 18px; margin-bottom: 16px; border-left: 4px solid #b87c4e;">
-            <div style="font-size: 15px; font-weight: 600; color: #8b5e3c; margin-bottom: 8px;">🎙️ 章节人格解读</div>
-            <p style="font-size: 14px; line-height: 1.65; color: #3a3530; margin: 0;">${album.desc}</p>
+          <div style="background:#fff;border-radius:20px;padding:18px;margin-bottom:16px;border-left:4px solid #b87c4e;">
+            <div style="font-size:15px;font-weight:600;color:#8b5e3c;margin-bottom:8px;">章节人格解读</div>
+            <p style="font-size:14px;line-height:1.65;color:#3a3530;margin:0;">${album.desc}</p>
           </div>
 
-          <div style="background: rgba(255,255,255,0.4); border-radius: 16px; padding: 14px; margin-bottom: 20px;">
-            <p style="font-size: 14px; color: #7f7a74; margin: 0; font-style: italic;">“ ${album.lyric} ”</p>
+          <div style="background:#faf7f3;border-radius:16px;padding:14px;margin-bottom:20px;">
+            <p style="font-size:14px;color:#7f7a74;margin:0;font-style:italic;">“ ${album.lyric} ”</p>
           </div>
 
-          <div style="display: flex; align-items: center; justify-content: space-between;">
-            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-              ${album.tags.map(t => `<span style="background:#ede6df; padding:4px 14px; border-radius:40px; font-size:13px; color:#8b5e3c;">#${t}</span>`).join('')}
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;flex:1;">
+              ${album.tags.map(t => `<span style="background:#ede6df;padding:4px 14px;border-radius:40px;font-size:13px;color:#8b5e3c;">#${t}</span>`).join('')}
             </div>
-            <!-- 二维码容器 -->
-            <div id="qrcodeContainer" style="width: 80px; height: 80px; border-radius: 8px; overflow: hidden;"></div>
+            <div id="qrcodeContainer" style="width:80px;height:80px;border-radius:8px;overflow:hidden;background:#fff;flex-shrink:0;"></div>
           </div>
-          <div style="text-align: right; margin-top: 12px; font-size: 12px; color: #aaa;">扫码测试 · 匹配你的 TI 章节</div>
+          <div style="text-align:right;margin-top:12px;font-size:12px;color:#8f8a84;">扫码测试 · 匹配你的 TI 章节</div>
         `;
+        document.body.appendChild(captureNode);
 
-        document.body.appendChild(snapshotContainer);
-
-        // 生成二维码并填充到容器
-        const qrcodeEl = snapshotContainer.querySelector('#qrcodeContainer');
+        const qrcodeEl = captureNode.querySelector('#qrcodeContainer');
         try {
           new QRCode(qrcodeEl, {
             text: currentUrl,
@@ -1079,75 +1068,85 @@ const DIM_NAMES = {
         } catch (err) {
           console.warn('二维码生成失败: ', err);
           alert('二维码生成失败，请稍后重试。');
-          safeRemove(snapshotContainer);
-          safeRemove(overlay);
+          safeRemove(captureNode);
           finishCapture();
           return;
         }
 
-        const imgElement = snapshotContainer.querySelector('img');
-
-        const doCapture = () => {
+        const doCapture = async () => {
           if (captureDone || captureStarted) return;
           captureStarted = true;
-          html2canvas(snapshotContainer, {
-            scale: 2.5,
-            backgroundColor: '#fdfaf7',
-            allowTaint: false,
-            useCORS: true,
-            logging: false,
-            windowWidth: 600
-          }).then(canvas => {
-            // 替换为预览图
-            snapshotContainer.style.background = 'transparent';
-            snapshotContainer.style.boxShadow = 'none';
-            snapshotContainer.style.border = 'none';
-            snapshotContainer.innerHTML = ''; 
-            const previewImg = document.createElement('img');
-            previewImg.src = canvas.toDataURL('image/png');
-            previewImg.style.width = '100%';
-            previewImg.style.borderRadius = '24px';
-            previewImg.style.boxShadow = '0 20px 40px rgba(0,0,0,0.2)';
-            previewImg.alt = '分享截图';
-            snapshotContainer.appendChild(previewImg);
+          try {
+            if (document.fonts && document.fonts.ready) {
+              await document.fonts.ready;
+            }
+            await wait(120);
+            await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 
-            const tip = document.createElement('div');
-            tip.style.textAlign = 'center';
-            tip.style.marginTop = '16px';
-            tip.style.color = '#fff';
-            tip.style.textShadow = '0 2px 4px rgba(0,0,0,0.3)';
-            tip.style.fontSize = '14px';
-            tip.innerText = '📱 长按图片即可保存到相册';
-            snapshotContainer.appendChild(tip);
+            const canvas = await html2canvas(captureNode, {
+              scale: Math.min(3, (window.devicePixelRatio || 2)),
+              backgroundColor: '#fdfaf7',
+              useCORS: true,
+              allowTaint: false,
+              logging: false,
+              foreignObjectRendering: false,
+              scrollX: 0,
+              scrollY: 0,
+              windowWidth: 600
+            });
+
+            safeRemove(captureNode);
+
+            const overlay = document.createElement('div');
+            overlay.style.cssText = `
+              position: fixed; left: 0; top: 0; width: 100%; height: 100%;
+              background: rgba(0,0,0,0.35);
+              z-index: 99998;
+            `;
+            document.body.appendChild(overlay);
+
+            const preview = document.createElement('div');
+            preview.style.cssText = `
+              position: fixed;
+              left: 50%; top: 50%;
+              transform: translate(-50%, -50%);
+              width: min(92vw, 600px);
+              z-index: 99999;
+            `;
+            preview.innerHTML = `
+              <img src="${canvas.toDataURL('image/png')}" alt="分享截图" style="width:100%;border-radius:20px;box-shadow:0 20px 40px rgba(0,0,0,0.25);display:block;">
+              <div style="text-align:center;margin-top:12px;color:#fff;font-size:14px;">长按图片即可保存到相册</div>
+            `;
 
             const closeBtn = document.createElement('button');
             closeBtn.className = 'preview-close-btn';
             closeBtn.innerHTML = '&times;';
             closeBtn.setAttribute('aria-label', '关闭');
             closeBtn.onclick = () => {
-              safeRemove(snapshotContainer);
+              safeRemove(preview);
               safeRemove(overlay);
               finishCapture();
             };
-            snapshotContainer.appendChild(closeBtn);
+            preview.appendChild(closeBtn);
+            document.body.appendChild(preview);
             finishCapture();
-          }).catch(err => {
+          } catch (err) {
             console.warn('截图失败: ', err);
             alert('截图生成失败，可稍后重试。');
-            safeRemove(snapshotContainer);
-            safeRemove(overlay);
+            safeRemove(captureNode);
             finishCapture();
-          });
+          }
         };
 
-        if (imgElement.complete && imgElement.naturalHeight > 0) {
+        const imgElement = captureNode.querySelector('#shareCoverImage');
+        if (imgElement && imgElement.complete && imgElement.naturalHeight > 0) {
           doCapture();
-        } else {
+        } else if (imgElement) {
           imgElement.onload = doCapture;
-          imgElement.onerror = () => doCapture();
-          setTimeout(() => {
-            if (snapshotContainer.parentNode) doCapture();
-          }, 2000);
+          imgElement.onerror = doCapture;
+          setTimeout(doCapture, 2000);
+        } else {
+          doCapture();
         }
       }
 
