@@ -1095,7 +1095,12 @@ const DIM_NAMES = {
             if (oldUrl) URL.revokeObjectURL(oldUrl);
             safeRemove(panel);
           });
-          document.querySelectorAll('.snapshot-preview-overlay, .snapshot-image-only, .snapshot-loading-mask').forEach((n) => safeRemove(n));
+          document.querySelectorAll('.snapshot-image-only').forEach((imageOnly) => {
+            const oldUrl = imageOnly.getAttribute('data-blob-url');
+            if (oldUrl) URL.revokeObjectURL(oldUrl);
+            safeRemove(imageOnly);
+          });
+          document.querySelectorAll('.snapshot-preview-overlay, .snapshot-loading-mask').forEach((n) => safeRemove(n));
         };
         cleanupExistingPreview();
 
@@ -1210,7 +1215,7 @@ const DIM_NAMES = {
             const height = 1460;
             canvas.width = width;
             canvas.height = height;
-            const ctx = canvas.getContext('2d');
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
             if (!ctx) throw new Error('Canvas 初始化失败');
             const stagePixels = {};
             const isLight = (p) => !!p && p[3] > 0 && p[0] > 238 && p[1] > 238 && p[2] > 238;
@@ -1323,7 +1328,8 @@ const DIM_NAMES = {
               const verifyCanvas = document.createElement('canvas');
               verifyCanvas.width = width;
               verifyCanvas.height = height;
-              const vctx = verifyCanvas.getContext('2d');
+              const vctx = verifyCanvas.getContext('2d', { willReadFrequently: true });
+              if (!vctx) throw new Error('E_BLOB_VERIFY_FAILED');
               const vimg = await loadImage(imageUrl);
               vctx.drawImage(vimg, 0, 0, width, height);
               const sampleRegion = (x, y, name, radius = 2) => {
@@ -1373,6 +1379,36 @@ const DIM_NAMES = {
             }
 
             safeRemove(loadingMask);
+
+            const openImageOnlyMode = () => {
+              const imageOnly = document.createElement('div');
+              imageOnly.className = 'snapshot-image-only';
+              imageOnly.setAttribute('data-blob-url', imageUrl);
+              imageOnly.style.cssText = `
+                position: fixed; left: 0; top: 0; width: 100%; height: 100%;
+                background: rgba(0,0,0,0.85); z-index: 100001;
+                display: flex; flex-direction: column; align-items: center; justify-content: center;
+                padding: 20px; box-sizing: border-box;
+              `;
+              imageOnly.innerHTML = `
+                <img src="${imageUrl}" alt="原图" style="max-width:100%;max-height:78vh;border-radius:14px;display:block;">
+                <div style="margin-top:10px;color:#fff;font-size:13px;text-align:center;">长按图片保存，点空白处返回</div>
+              `;
+              imageOnly.onclick = () => {
+                const oldUrl = imageOnly.getAttribute('data-blob-url');
+                if (oldUrl) URL.revokeObjectURL(oldUrl);
+                safeRemove(imageOnly);
+              };
+              document.body.appendChild(imageOnly);
+            };
+
+            if (isWeChat) {
+              logDiag('save_branch', 'wechat-auto-open-image');
+              openImageOnlyMode();
+              showDiagReport('截图诊断（成功）');
+              finishCapture();
+              return;
+            }
 
             const overlay = document.createElement('div');
             overlay.className = 'snapshot-preview-overlay';
@@ -1458,20 +1494,7 @@ const DIM_NAMES = {
             openBtn.className = 'snapshot-open-btn';
             openBtn.textContent = '长按保存模式';
             openBtn.onclick = () => {
-              const imageOnly = document.createElement('div');
-              imageOnly.className = 'snapshot-image-only';
-              imageOnly.style.cssText = `
-                position: fixed; left: 0; top: 0; width: 100%; height: 100%;
-                background: rgba(0,0,0,0.85); z-index: 100001;
-                display: flex; flex-direction: column; align-items: center; justify-content: center;
-                padding: 20px; box-sizing: border-box;
-              `;
-              imageOnly.innerHTML = `
-                <img src="${imageUrl}" alt="原图" style="max-width:100%;max-height:78vh;border-radius:14px;display:block;">
-                <div style="margin-top:10px;color:#fff;font-size:13px;text-align:center;">长按图片保存，点空白处返回</div>
-              `;
-              imageOnly.onclick = () => safeRemove(imageOnly);
-              document.body.appendChild(imageOnly);
+              openImageOnlyMode();
             };
             actions.appendChild(openBtn);
             preview.appendChild(actions);
