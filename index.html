@@ -5,8 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>方大同 TI 专辑匹配 · 你的灵魂会落在哪一段 Groove</title>
   
-  <!-- 截图库（稳定 CDN） -->
-  <script src="https://cdn.bootcdn.net/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <!-- 二维码生成库 -->
   <script src="https://cdn.bootcdn.net/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   
@@ -550,6 +548,35 @@
     .preview-close-btn:hover {
       background: rgba(0,0,0,0.7);
     }
+
+    .snapshot-actions {
+      margin-top: 12px;
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .snapshot-actions button {
+      border: none;
+      border-radius: 999px;
+      padding: 10px 16px;
+      min-height: 40px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    .snapshot-save-btn {
+      background: #d48c5b;
+      color: #fff;
+      font-weight: 600;
+    }
+
+    .snapshot-open-btn {
+      background: rgba(255,255,255,0.2);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,0.35) !important;
+    }
   </style>
   
   <!-- 统计脚本已移除 -->
@@ -983,12 +1010,11 @@ const DIM_NAMES = {
         showScreen('result');
       }
 
-      // ----- 分享截图功能（预览模式）-----
+      // ----- 分享截图功能（预览 + 保存）-----
       function generateShareSnapshot(onFinish) {
         const { best: album, similarity, confidence, confidenceLabel } = computeMatch();
         const currentUrl = window.location.href;
         let captureDone = false;
-        let captureStarted = false;
         const finishCapture = () => {
           if (captureDone) return;
           captureDone = true;
@@ -998,106 +1024,358 @@ const DIM_NAMES = {
           if (node && node.parentNode) node.parentNode.removeChild(node);
         };
         const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        const isWeChat = /MicroMessenger/i.test(navigator.userAgent || '');
+        const DIAG_MODE = /[?&]diag=1/.test(window.location.search) || localStorage.getItem('ti_diag') === '1';
+        const BUILD_TAG = 'shot-2026-04-19-r1';
+        window.__TI_SNAPSHOT_BUILD__ = BUILD_TAG;
+        const diag = [];
+        const logDiag = (step, detail) => {
+          diag.push({ t: new Date().toISOString(), step, detail });
+        };
+        const showDiagReport = (title) => {
+          if (!DIAG_MODE) return;
+          const old = document.getElementById('diagPanel');
+          if (old) safeRemove(old);
+          const reportText = `${title} · ${BUILD_TAG}\n${diag.map((d)=>`[${d.t}] ${d.step}: ${d.detail}`).join('\n')}`;
+          const panel = document.createElement('div');
+          panel.id = 'diagPanel';
+          panel.style.cssText = 'position:fixed;left:12px;right:12px;bottom:12px;z-index:100010;background:#111;color:#fff;border-radius:10px;padding:10px;font-size:12px;max-height:42vh;overflow:auto;';
+          panel.innerHTML = `
+            <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:6px;">
+              <div style="font-weight:700;">${title} · ${BUILD_TAG}</div>
+              <button id="diagCopyBtn" style="border:1px solid #666;background:#222;color:#fff;border-radius:6px;padding:4px 8px;font-size:12px;">复制报告</button>
+            </div>
+            <pre style="white-space:pre-wrap;word-break:break-word;margin:0;line-height:1.45;">${reportText}</pre>
+          `;
+          document.body.appendChild(panel);
+          const copyBtn = document.getElementById('diagCopyBtn');
+          if (copyBtn) {
+            copyBtn.onclick = async () => {
+              try {
+                await navigator.clipboard.writeText(reportText);
+                copyBtn.textContent = '已复制';
+              } catch (e) {
+                copyBtn.textContent = '复制失败';
+              }
+            };
+          }
+        };
+        logDiag('init', `ua=${navigator.userAgent}; wechat=${isWeChat}`);
+        const buildBadgeId = 'snapshotBuildBadge';
+        if (!document.getElementById(buildBadgeId)) {
+          const badge = document.createElement('div');
+          badge.id = buildBadgeId;
+          badge.style.cssText = 'position:fixed;right:10px;bottom:10px;z-index:99990;background:rgba(0,0,0,0.55);color:#fff;padding:2px 6px;border-radius:6px;font-size:10px;letter-spacing:.2px;';
+          badge.textContent = BUILD_TAG;
+          document.body.appendChild(badge);
+        }
+        const normalizeErrorCode = (err) => {
+          const msg = `${err && err.message ? err.message : ''}`.toUpperCase();
+          const name = `${err && err.name ? err.name : ''}`.toUpperCase();
+          if (msg.includes('E_BLOB_MAJOR_LAYER_MISSING')) return 'E_BLOB_MAJOR_LAYER_MISSING';
+          if (msg.includes('E_BLOB_TEXT_LAYER_MISSING')) return 'E_BLOB_TEXT_LAYER_MISSING';
+          if (msg.includes('E_BLOB_VERIFY_FAILED')) return 'E_BLOB_VERIFY_FAILED';
+          if (msg.includes('E_QR_TIMEOUT')) return 'E_QR_TIMEOUT';
+          if (msg.includes('E_EXPORT_NULL')) return 'E_EXPORT_NULL';
+          if (msg.includes('E_CANVAS_TAINTED') || name.includes('SECURITYERROR')) return 'E_CANVAS_TAINTED';
+          return 'E_RENDER_FAIL';
+        };
 
-        if (typeof QRCode === 'undefined' || typeof html2canvas !== 'function') {
-          alert('分享组件加载失败，请稍后重试。');
+        if (typeof QRCode === 'undefined') {
+          logDiag('fatal', 'E_QRCODE_LIB_MISSING');
+          showDiagReport('截图诊断（失败）');
+          alert(`分享组件加载失败（E_QRCODE_LIB_MISSING）[${BUILD_TAG}]`);
           finishCapture();
           return;
         }
 
-        // 截图用离屏容器：避免微信/移动端对 fixed + transform 截图不完整
-        const captureNode = document.createElement('div');
-        captureNode.style.cssText = `
-          position: absolute;
-          left: -99999px;
-          top: 0;
-          width: 600px;
-          background: #fdfaf7;
-          border: 2px solid rgba(184,124,78,0.2);
-          border-radius: 28px;
-          padding: 28px 24px;
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-          color: #2e2b28;
-          box-sizing: border-box;
-          z-index: -1;
-        `;
-
-        captureNode.innerHTML = `
-          <div style="display:flex;align-items:center;gap:20px;margin-bottom:24px;">
-            <div style="width:120px;height:120px;border-radius:16px;overflow:hidden;box-shadow:0 8px 16px rgba(0,0,0,0.1);background:#f0e4d8;flex-shrink:0;">
-              <img id="shareCoverImage" src="${album.cover}" crossorigin="anonymous" style="width:100%;height:100%;object-fit:cover;" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'120\\' height=\\'120\\'%3E%3Crect width=\\'120\\' height=\\'120\\' fill=\\'%23f0e4d8\\'/%3E%3Ctext x=\\'50%25\\' y=\\'50%25\\' font-size=\\'12\\' fill=\\'%238b5e3c\\' text-anchor=\\'middle\\' dy=\\'.3em\\'%3ETI%3C/text%3E%3C/svg%3E';">
-            </div>
-            <div style="flex:1;min-width:0;">
-              <div style="font-size:14px;color:#b87c4e;letter-spacing:1px;margin-bottom:6px;">${album.year} · TI 章节</div>
-              <div style="font-size:32px;font-weight:700;line-height:1.1;color:#2e2b28;margin-bottom:8px;word-break:break-word;">${album.name}</div>
-              <div style="display:inline-block;background:#f0e4d8;border-radius:40px;padding:6px 16px;color:#8b5e3c;font-weight:600;font-size:15px;">
-                匹配度 ${similarity}% · 置信度 ${confidence}%（${confidenceLabel}）
-              </div>
-            </div>
-          </div>
-
-          <div style="background:#fff;border-radius:20px;padding:18px;margin-bottom:16px;border-left:4px solid #b87c4e;">
-            <div style="font-size:15px;font-weight:600;color:#8b5e3c;margin-bottom:8px;">章节人格解读</div>
-            <p style="font-size:14px;line-height:1.65;color:#3a3530;margin:0;">${album.desc}</p>
-          </div>
-
-          <div style="background:#faf7f3;border-radius:16px;padding:14px;margin-bottom:20px;">
-            <p style="font-size:14px;color:#7f7a74;margin:0;font-style:italic;">“ ${album.lyric} ”</p>
-          </div>
-
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
-            <div style="display:flex;gap:8px;flex-wrap:wrap;flex:1;">
-              ${album.tags.map(t => `<span style="background:#ede6df;padding:4px 14px;border-radius:40px;font-size:13px;color:#8b5e3c;">#${t}</span>`).join('')}
-            </div>
-            <div id="qrcodeContainer" style="width:80px;height:80px;border-radius:8px;overflow:hidden;background:#fff;flex-shrink:0;"></div>
-          </div>
-          <div style="text-align:right;margin-top:12px;font-size:12px;color:#8f8a84;">扫码测试 · 匹配你的 TI 章节</div>
-        `;
-        document.body.appendChild(captureNode);
-
-        const qrcodeEl = captureNode.querySelector('#qrcodeContainer');
-        try {
-          new QRCode(qrcodeEl, {
-            text: currentUrl,
-            width: 80,
-            height: 80,
-            colorDark: "#2e2b28",
-            colorLight: "#ffffff",
-            correctLevel: QRCode.CorrectLevel.H
+        const cleanupExistingPreview = () => {
+          document.querySelectorAll('.snapshot-preview-panel').forEach((panel) => {
+            const oldUrl = panel.getAttribute('data-blob-url');
+            if (oldUrl) URL.revokeObjectURL(oldUrl);
+            safeRemove(panel);
           });
-        } catch (err) {
-          console.warn('二维码生成失败: ', err);
-          alert('二维码生成失败，请稍后重试。');
-          safeRemove(captureNode);
-          finishCapture();
-          return;
-        }
+          document.querySelectorAll('.snapshot-preview-overlay, .snapshot-image-only, .snapshot-loading-mask').forEach((n) => safeRemove(n));
+        };
+        cleanupExistingPreview();
 
-        const doCapture = async () => {
-          if (captureDone || captureStarted) return;
-          captureStarted = true;
+        const loadingMask = document.createElement('div');
+        loadingMask.className = 'snapshot-loading-mask';
+        loadingMask.style.cssText = `
+          position: fixed; left: 0; top: 0; width: 100%; height: 100%;
+          background: rgba(0,0,0,0.35); z-index: 99997;
+          display: flex; align-items: center; justify-content: center;
+          color: #fff; font-size: 14px;
+        `;
+        loadingMask.textContent = '正在生成截图...';
+        document.body.appendChild(loadingMask);
+
+        const roundRect = (ctx, x, y, w, h, r, fill, stroke) => {
+          const radius = Math.min(r, w / 2, h / 2);
+          ctx.beginPath();
+          ctx.moveTo(x + radius, y);
+          ctx.arcTo(x + w, y, x + w, y + h, radius);
+          ctx.arcTo(x + w, y + h, x, y + h, radius);
+          ctx.arcTo(x, y + h, x, y, radius);
+          ctx.arcTo(x, y, x + w, y, radius);
+          ctx.closePath();
+          if (fill) {
+            ctx.fillStyle = fill;
+            ctx.fill();
+          }
+          if (stroke) {
+            ctx.strokeStyle = stroke;
+            ctx.stroke();
+          }
+        };
+
+        const loadImage = (src) => new Promise((resolve, reject) => {
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          img.referrerPolicy = 'no-referrer';
+          img.onload = () => resolve(img);
+          img.onerror = reject;
+          img.src = src;
+        });
+
+        const wrapText = (ctx, text, x, y, maxWidth, lineHeight, maxLines) => {
+          const chars = String(text || '').split('');
+          const lines = [];
+          let current = '';
+          chars.forEach((ch) => {
+            const test = current + ch;
+            if (ctx.measureText(test).width > maxWidth && current) {
+              lines.push(current);
+              current = ch;
+            } else {
+              current = test;
+            }
+          });
+          if (current) lines.push(current);
+          const finalLines = typeof maxLines === 'number' ? lines.slice(0, maxLines) : lines;
+          finalLines.forEach((line, i) => ctx.fillText(line, x, y + i * lineHeight));
+          return finalLines.length;
+        };
+
+        const createQrCanvas = async () => {
+          const holder = document.createElement('div');
+          holder.style.cssText = 'position:fixed;left:0;top:0;width:220px;height:220px;opacity:0;pointer-events:none;z-index:1;';
+          document.body.appendChild(holder);
+          try {
+            new QRCode(holder, {
+              text: currentUrl,
+              width: 220,
+              height: 220,
+              colorDark: '#2e2b28',
+              colorLight: '#ffffff',
+              correctLevel: QRCode.CorrectLevel.H
+            });
+            logDiag('qr', 'qrcode instance created');
+            let qrCanvas = null;
+            let qrImg = null;
+            const start = Date.now();
+            while (Date.now() - start < 2500) {
+              qrCanvas = holder.querySelector('canvas');
+              qrImg = holder.querySelector('img');
+              if (qrCanvas || qrImg) break;
+              await wait(50);
+            }
+            if (qrCanvas) return qrCanvas;
+            if (qrImg) {
+              logDiag('qr', 'fallback to img');
+              const tmp = document.createElement('canvas');
+              tmp.width = 220;
+              tmp.height = 220;
+              const tctx = tmp.getContext('2d');
+              const img = await loadImage(qrImg.src);
+              tctx.drawImage(img, 0, 0, 220, 220);
+              return tmp;
+            }
+            throw new Error('E_QR_TIMEOUT');
+          } finally {
+            safeRemove(holder);
+          }
+        };
+
+        (async () => {
+          let imageUrl = '';
           try {
             if (document.fonts && document.fonts.ready) {
               await document.fonts.ready;
             }
-            await wait(120);
-            await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+            logDiag('fonts', 'ready');
 
-            const canvas = await html2canvas(captureNode, {
-              scale: Math.min(3, (window.devicePixelRatio || 2)),
-              backgroundColor: '#fdfaf7',
-              useCORS: true,
-              allowTaint: false,
-              logging: false,
-              foreignObjectRendering: false,
-              scrollX: 0,
-              scrollY: 0,
-              windowWidth: 600
+            const canvas = document.createElement('canvas');
+            const width = 1080;
+            const height = 1460;
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) throw new Error('Canvas 初始化失败');
+            const stagePixels = {};
+            const isLight = (p) => !!p && p[3] > 0 && p[0] > 238 && p[1] > 238 && p[2] > 238;
+            const isDark = (p) => !!p && p[3] > 0 && p[0] < 70 && p[1] < 70 && p[2] < 70;
+            const pixelSample = (x, y, name) => {
+              try {
+                const d = ctx.getImageData(x, y, 1, 1).data;
+                stagePixels[name] = [d[0], d[1], d[2], d[3]];
+                logDiag('pixel', `${name}=${d[0]},${d[1]},${d[2]},${d[3]}`);
+              } catch (e) {
+                logDiag('pixel_err', `${name}=${e.name || 'Error'}:${e.message || ''}`);
+                throw new Error(`E_CANVAS_TAINTED:${e.name || 'Error'}`);
+              }
+            };
+
+            ctx.fillStyle = '#f7f3ee';
+            ctx.fillRect(0, 0, width, height);
+            roundRect(ctx, 34, 34, width - 68, height - 68, 42, '#fdfaf7', '#e7d8c8');
+            pixelSample(60, 60, 'bg');
+
+            const cardX = 84;
+            const coverY = 120;
+            const coverSize = 190;
+            roundRect(ctx, cardX, coverY, coverSize, coverSize, 24, '#f0e4d8', null);
+            const skipRemoteCover = isWeChat || /[?&]safecover=1/.test(window.location.search);
+            try {
+              if (!skipRemoteCover) {
+                const cover = await loadImage(album.cover);
+                ctx.save();
+                roundRect(ctx, cardX, coverY, coverSize, coverSize, 24);
+                ctx.clip();
+                ctx.drawImage(cover, cardX, coverY, coverSize, coverSize);
+                ctx.restore();
+                logDiag('cover', 'remote cover drawn');
+              } else {
+                throw new Error('SKIP_REMOTE_COVER');
+              }
+            } catch (e) {
+              logDiag('cover_fallback', e.message || 'fallback');
+              ctx.fillStyle = '#8b5e3c';
+              ctx.font = 'bold 46px sans-serif';
+              ctx.fillText('TI', cardX + 62, coverY + 114);
+            }
+            pixelSample(cardX + 90, coverY + 90, 'cover_region');
+
+            const textX = cardX + coverSize + 34;
+            ctx.fillStyle = '#b87c4e';
+            ctx.font = '500 30px sans-serif';
+            ctx.fillText(`${album.year} · TI 章节`, textX, coverY + 36);
+            ctx.fillStyle = '#2e2b28';
+            ctx.font = '700 66px sans-serif';
+            wrapText(ctx, album.name, textX, coverY + 102, 580, 74, 2);
+            pixelSample(textX + 18, coverY + 86, 'title_region');
+
+            const badge = `匹配度 ${similarity}% · 置信度 ${confidence}%（${confidenceLabel}）`;
+            ctx.font = '600 32px sans-serif';
+            const badgeW = Math.min(ctx.measureText(badge).width + 56, width - textX - 68);
+            roundRect(ctx, textX, coverY + 142, badgeW, 62, 31, '#f0e4d8', null);
+            ctx.fillStyle = '#8b5e3c';
+            ctx.fillText(badge, textX + 26, coverY + 184);
+
+            roundRect(ctx, 84, 366, 912, 310, 28, '#ffffff', null);
+            ctx.fillStyle = '#b87c4e';
+            ctx.fillRect(84, 366, 7, 310);
+            ctx.fillStyle = '#8b5e3c';
+            ctx.font = '600 34px sans-serif';
+            ctx.fillText('章节人格解读', 118, 422);
+            ctx.fillStyle = '#3a3530';
+            ctx.font = '400 32px sans-serif';
+            wrapText(ctx, album.desc, 118, 474, 840, 48, 4);
+            pixelSample(160, 492, 'desc_region');
+
+            roundRect(ctx, 84, 710, 912, 114, 24, '#f7f1ea', null);
+            ctx.fillStyle = '#7f7a74';
+            ctx.font = 'italic 30px sans-serif';
+            wrapText(ctx, `“ ${album.lyric} ”`, 116, 778, 840, 44, 2);
+
+            const tags = (album.tags || []).slice(0, 4);
+            let tagX = 84;
+            const tagY = 868;
+            ctx.font = '500 28px sans-serif';
+            tags.forEach((tag) => {
+              const text = `#${tag}`;
+              const tw = ctx.measureText(text).width;
+              const pillW = tw + 40;
+              roundRect(ctx, tagX, tagY, pillW, 52, 26, '#ede6df', null);
+              ctx.fillStyle = '#8b5e3c';
+              ctx.fillText(text, tagX + 20, tagY + 35);
+              tagX += pillW + 12;
             });
 
-            safeRemove(captureNode);
+            const qrCanvas = await createQrCanvas();
+            roundRect(ctx, 838, 826, 158, 158, 16, '#ffffff', null);
+            ctx.drawImage(qrCanvas, 848, 836, 138, 138);
+            pixelSample(905, 894, 'qr_region');
+
+            ctx.fillStyle = '#8f8a84';
+            ctx.font = '500 28px sans-serif';
+            ctx.fillText('扫码测试 · 匹配你的 TI 章节', 664, 1038);
+            ctx.fillStyle = '#6c655f';
+            ctx.font = '400 20px monospace';
+            ctx.fillText(BUILD_TAG, 88, 1376);
+            pixelSample(130, 1370, 'build_tag');
+
+            const imgBlob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png', 1));
+            if (!imgBlob) throw new Error('E_EXPORT_NULL');
+            imageUrl = URL.createObjectURL(imgBlob);
+            logDiag('export', `blob=${imgBlob.size}`);
+            try {
+              const verifyCanvas = document.createElement('canvas');
+              verifyCanvas.width = width;
+              verifyCanvas.height = height;
+              const vctx = verifyCanvas.getContext('2d');
+              const vimg = await loadImage(imageUrl);
+              vctx.drawImage(vimg, 0, 0, width, height);
+              const sampleRegion = (x, y, name, radius = 2) => {
+                let total = 0;
+                let dark = 0;
+                let light = 0;
+                for (let dx = -radius; dx <= radius; dx += 1) {
+                  for (let dy = -radius; dy <= radius; dy += 1) {
+                    const d = vctx.getImageData(x + dx, y + dy, 1, 1).data;
+                    const p = [d[0], d[1], d[2], d[3]];
+                    total += 1;
+                    if (isDark(p)) dark += 1;
+                    if (isLight(p)) light += 1;
+                  }
+                }
+                const result = { darkRatio: dark / total, lightRatio: light / total };
+                logDiag('blob_region', `${name}=dark:${result.darkRatio.toFixed(2)},light:${result.lightRatio.toFixed(2)}`);
+                return result;
+              };
+              const blobPixels = {
+                cover_region: sampleRegion(cardX + 90, coverY + 90, 'cover_region'),
+                title_region: sampleRegion(textX + 18, coverY + 86, 'title_region'),
+                desc_region: sampleRegion(160, 492, 'desc_region'),
+                desc_region_2: sampleRegion(210, 540, 'desc_region_2'),
+                qr_region: sampleRegion(905, 894, 'qr_region'),
+                build_tag: sampleRegion(130, 1370, 'build_tag'),
+                build_tag_2: sampleRegion(230, 1370, 'build_tag_2')
+              };
+              const descMissing = blobPixels.desc_region.lightRatio > 0.8 && blobPixels.desc_region_2.lightRatio > 0.8;
+              const buildMissing = blobPixels.build_tag.lightRatio > 0.8 && blobPixels.build_tag_2.lightRatio > 0.8;
+              const textMissing = blobPixels.title_region.lightRatio > 0.8 && descMissing && buildMissing;
+              const qrPresent = blobPixels.qr_region.darkRatio > 0.2;
+              const majorMissing = blobPixels.title_region.lightRatio > 0.9 && descMissing && blobPixels.qr_region.lightRatio > 0.9 && buildMissing;
+              if (majorMissing) {
+                logDiag('anomaly', 'E_BLOB_MAJOR_LAYER_MISSING');
+                throw new Error('E_BLOB_MAJOR_LAYER_MISSING');
+              }
+              if (textMissing && qrPresent) {
+                logDiag('anomaly', 'E_BLOB_TEXT_LAYER_MISSING');
+                throw new Error('E_BLOB_TEXT_LAYER_MISSING');
+              }
+              logDiag('anomaly', 'none');
+            } catch (e) {
+              if (String(e.message || '').includes('E_BLOB_TEXT_LAYER_MISSING') || String(e.message || '').includes('E_BLOB_MAJOR_LAYER_MISSING')) throw e;
+              logDiag('blob_verify_err', `${e.name || 'Error'}:${e.message || ''}`);
+              throw new Error('E_BLOB_VERIFY_FAILED');
+            }
+
+            safeRemove(loadingMask);
 
             const overlay = document.createElement('div');
+            overlay.className = 'snapshot-preview-overlay';
             overlay.style.cssText = `
               position: fixed; left: 0; top: 0; width: 100%; height: 100%;
               background: rgba(0,0,0,0.35);
@@ -1106,6 +1384,7 @@ const DIM_NAMES = {
             document.body.appendChild(overlay);
 
             const preview = document.createElement('div');
+            preview.className = 'snapshot-preview-panel';
             preview.style.cssText = `
               position: fixed;
               left: 50%; top: 50%;
@@ -1113,41 +1392,117 @@ const DIM_NAMES = {
               width: min(92vw, 600px);
               z-index: 99999;
             `;
-            preview.innerHTML = `
-              <img src="${canvas.toDataURL('image/png')}" alt="分享截图" style="width:100%;border-radius:20px;box-shadow:0 20px 40px rgba(0,0,0,0.25);display:block;">
-              <div style="text-align:center;margin-top:12px;color:#fff;font-size:14px;">长按图片即可保存到相册</div>
-            `;
+
+            preview.setAttribute('data-blob-url', imageUrl);
+
+            const img = document.createElement('img');
+            img.alt = '分享截图';
+            img.src = imageUrl;
+            img.style.cssText = 'width:100%;border-radius:20px;box-shadow:0 20px 40px rgba(0,0,0,0.25);display:block;';
+            preview.appendChild(img);
+
+            const tip = document.createElement('div');
+            tip.style.cssText = 'text-align:center;margin-top:12px;color:#fff;font-size:14px;';
+            tip.textContent = '可直接保存；若失败请点“打开原图”后长按保存';
+            preview.appendChild(tip);
+
+            const actions = document.createElement('div');
+            actions.className = 'snapshot-actions';
+
+            const saveBtn = document.createElement('button');
+            saveBtn.className = 'snapshot-save-btn';
+            saveBtn.textContent = '保存图片';
+            saveBtn.onclick = async () => {
+              const shareCap = !!navigator.share;
+              const canShareCap = !!navigator.canShare;
+              const fileCap = !!window.File;
+              logDiag('save_cap', `share=${shareCap};canShare=${canShareCap};file=${fileCap}`);
+              if (isWeChat) {
+                logDiag('save_branch', 'wechat-open-image');
+                openBtn.click();
+                return;
+              }
+              const filename = `khalil-fong-ti-${Date.now()}.png`;
+              try {
+                if (navigator.share && window.File && navigator.canShare) {
+                  const file = new File([imgBlob], filename, { type: 'image/png' });
+                  if (navigator.canShare({ files: [file] })) {
+                    logDiag('save_branch', 'native-share');
+                    await navigator.share({ files: [file], title: 'Khalil Fong TI' });
+                    return;
+                  }
+                }
+              } catch (err) {
+                logDiag('save_share_error', `${err.name || 'Error'}:${err.message || ''}`);
+                console.warn('系统分享失败，回退到下载: ', err);
+              }
+
+              try {
+                logDiag('save_branch', 'a-download');
+                const link = document.createElement('a');
+                link.href = imageUrl;
+                link.download = filename;
+                link.rel = 'noopener';
+                document.body.appendChild(link);
+                link.click();
+                safeRemove(link);
+              } catch (err) {
+                logDiag('save_download_error', `${err.name || 'Error'}:${err.message || ''}`);
+                console.warn('下载失败: ', err);
+                alert('当前环境不支持直接保存，请点“打开原图”后长按保存。');
+              }
+            };
+            actions.appendChild(saveBtn);
+
+            const openBtn = document.createElement('button');
+            openBtn.className = 'snapshot-open-btn';
+            openBtn.textContent = '长按保存模式';
+            openBtn.onclick = () => {
+              const imageOnly = document.createElement('div');
+              imageOnly.className = 'snapshot-image-only';
+              imageOnly.style.cssText = `
+                position: fixed; left: 0; top: 0; width: 100%; height: 100%;
+                background: rgba(0,0,0,0.85); z-index: 100001;
+                display: flex; flex-direction: column; align-items: center; justify-content: center;
+                padding: 20px; box-sizing: border-box;
+              `;
+              imageOnly.innerHTML = `
+                <img src="${imageUrl}" alt="原图" style="max-width:100%;max-height:78vh;border-radius:14px;display:block;">
+                <div style="margin-top:10px;color:#fff;font-size:13px;text-align:center;">长按图片保存，点空白处返回</div>
+              `;
+              imageOnly.onclick = () => safeRemove(imageOnly);
+              document.body.appendChild(imageOnly);
+            };
+            actions.appendChild(openBtn);
+            preview.appendChild(actions);
 
             const closeBtn = document.createElement('button');
             closeBtn.className = 'preview-close-btn';
             closeBtn.innerHTML = '&times;';
             closeBtn.setAttribute('aria-label', '关闭');
-            closeBtn.onclick = () => {
+            const closePreview = () => {
+              URL.revokeObjectURL(imageUrl);
               safeRemove(preview);
               safeRemove(overlay);
               finishCapture();
             };
+            closeBtn.onclick = closePreview;
+            overlay.onclick = closePreview;
             preview.appendChild(closeBtn);
             document.body.appendChild(preview);
+            showDiagReport('截图诊断（成功）');
             finishCapture();
           } catch (err) {
-            console.warn('截图失败: ', err);
-            alert('截图生成失败，可稍后重试。');
-            safeRemove(captureNode);
+            if (imageUrl) URL.revokeObjectURL(imageUrl);
+            const errCode = normalizeErrorCode(err);
+            console.warn('截图失败: ', errCode, err);
+            logDiag('fatal', `${errCode}:${err && err.message ? err.message : ''}`);
+            showDiagReport('截图诊断（失败）');
+            alert(`截图生成失败（${errCode}）[${BUILD_TAG}]。${DIAG_MODE ? '请截图底部诊断面板发我。' : '可加 ?diag=1 后重试。'}`);
+            safeRemove(loadingMask);
             finishCapture();
           }
-        };
-
-        const imgElement = captureNode.querySelector('#shareCoverImage');
-        if (imgElement && imgElement.complete && imgElement.naturalHeight > 0) {
-          doCapture();
-        } else if (imgElement) {
-          imgElement.onload = doCapture;
-          imgElement.onerror = doCapture;
-          setTimeout(doCapture, 2000);
-        } else {
-          doCapture();
-        }
+        })();
       }
 
       function startTest() {
