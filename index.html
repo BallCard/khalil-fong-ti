@@ -1026,6 +1026,7 @@ const DIM_NAMES = {
         const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
         const isWeChat = /MicroMessenger/i.test(navigator.userAgent || '');
         const DIAG_MODE = /[?&]diag=1/.test(window.location.search) || localStorage.getItem('ti_diag') === '1';
+        const SHOW_SUCCESS_DIAG = /[?&]diag_success=1/.test(window.location.search);
         const BUILD_TAG = 'shot-2026-04-19-r1';
         window.__TI_SNAPSHOT_BUILD__ = BUILD_TAG;
         const diag = [];
@@ -1405,7 +1406,7 @@ const DIM_NAMES = {
             if (isWeChat) {
               logDiag('save_branch', 'wechat-auto-open-image');
               openImageOnlyMode();
-              showDiagReport('截图诊断（成功）');
+              if (SHOW_SUCCESS_DIAG) showDiagReport('截图诊断（成功）');
               finishCapture();
               return;
             }
@@ -1513,7 +1514,7 @@ const DIM_NAMES = {
             overlay.onclick = closePreview;
             preview.appendChild(closeBtn);
             document.body.appendChild(preview);
-            showDiagReport('截图诊断（成功）');
+            if (SHOW_SUCCESS_DIAG) showDiagReport('截图诊断（成功）');
             finishCapture();
           } catch (err) {
             if (imageUrl) URL.revokeObjectURL(imageUrl);
