@@ -2,6 +2,10 @@
 
 一个关于方大同（Khalil Fong）的趣味知识测试，测试你对这位灵魂乐歌手的了解程度。
 
+## 在线体验
+
+👉 [https://7x9pp27rmr.coze.site](https://7x9pp27rmr.coze.site)
+
 ## 预览
 
 <table>
